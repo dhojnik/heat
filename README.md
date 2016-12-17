@@ -1,0 +1,2 @@
+# heat
+OpenStack Heat templates
