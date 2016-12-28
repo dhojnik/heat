@@ -1,0 +1,18 @@
+# Environment specific parameters
+parameters:
+  image_id: 'CentOS-7.3.1611.heat.2'
+  instance_type: 'm1.medium'
+  key_name: 'admin'
+  network: 'admin'
+  os_volume_size: 10
+  mariadb_volume_size: 10
+  mariadb_volume_count: 1
+  protocols: "tcp"
+  ports: "3306,4306,9000"
+  proxy: 'http://10.199.51.5:3128'
+
+# openstack orchestration template validate --template mariadb_cluster.yaml
+# openstack orchestration template validate --template mariadb_cluster.yaml -e environments/mariadb_env.yaml
+# openstack stack create -t mariadb_cluster.yaml -e environments/mariadb_env.yaml mariadb-galera
+# openstack stack update -t mariadb_cluster.yaml -e environments/mariadb_env.yaml mariadb-galera
+

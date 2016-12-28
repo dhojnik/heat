@@ -1,0 +1,181 @@
+heat_template_version: 2016-10-14
+
+description: Single Instance template
+
+parameter_groups:
+  - label: Instance Configuration
+    description: Instance settings
+    parameters:
+      - image_id
+      - instance_type
+      - key_name
+      - network_port
+      - os_volume_size
+      - data_volume_size
+      - data_volume_count
+      - heat_stack_name
+      - proxy
+      - server01_ip
+      - server02_ip
+      - server03_ip
+      - mariadb_galera_password
+      - mariadb_root_password
+      - mariadb_dbadmin_password
+      - mariadb_haproxy_password
+
+parameters:
+  image_id:
+    type: string
+    label: Image ID
+    description: Instance Image
+    constraints:
+      - custom_constraint: glance.image
+  instance_type:
+    type: string
+    label: Instance Type
+    description: Type of Instance
+    constraints:
+      - custom_constraint: nova.flavor
+  key_name:
+    type: string
+    label: Key Name
+    description: SSH Keys
+    constraints:
+      - custom_constraint: nova.keypair
+  network_port:
+    label: Network Port
+    type: string
+    description: Network
+  os_volume_size:
+    label: OS Volume Size in GB
+    type: number
+    constraints:
+    - range: { min: 10, max: 100 }
+  data_volume_size:
+    label: Data Volume Size in GB
+    type: number
+    constraints:
+    - range: {min: 1, max: 100}
+  data_volume_count:
+    label: Data Volume Count
+    type: number
+    constraints:
+    - range: {min: 0, max: 10}
+  heat_stack_name:
+    label: Main heat stack name
+    type: string
+  proxy:
+    type: string
+    description: Proxy URL
+  server01_ip:
+    type: string
+    description: Galera cluster ip address of first server
+  server02_ip:
+    type: string
+    description: Galera cluster ip address of first server
+  server03_ip:
+    type: string
+    description: Galera cluster ip address of first server
+  mariadb_galera_password:
+    type: string
+    description: Galera galera_admin password
+  mariadb_root_password:
+    type: string
+    description: MariaDB root password
+  mariadb_dbadmin_password:
+    type: string
+    description: MariaDB dbadmin password
+  mariadb_haproxy_password:
+    type: string
+    description: HAProxy haproxy user password
+
+resources:
+  random_hostname:
+    type: OS::Heat::RandomString
+    properties:
+      length: 8
+      character_classes: [ {"min": 6, "class": lowercase}, {"min": 2, "class": digits} ]
+
+  os_volume:
+    type: OS::Cinder::Volume
+    properties:
+      size: { get_param: os_volume_size }
+      image: { get_param: image_id }
+
+  data_volumes:
+    type: OS::Heat::ResourceGroup
+    properties:
+      count: { get_param: data_volume_count }
+      resource_def:
+        type: fragments/volumes.yaml
+        properties:
+          instance_id: { get_resource: instance }
+          volume_size: { get_param: data_volume_size }
+
+  wait_condition:
+    type: OS::Heat::WaitCondition
+    properties:
+      handle: { get_resource: wait_handle }
+      count: 1
+      timeout: 600
+
+  wait_handle:
+    type: OS::Heat::WaitConditionHandle
+
+  software_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        str_replace:
+          params:
+            $PROXY_URL:     { get_param: proxy }
+            $SERVER01_IP:   { get_param: server01_ip }
+            $SERVER02_IP:   { get_param: server02_ip }
+            $SERVER03_IP:   { get_param: server03_ip }
+            $MARIADB_GALERA_PASSWORD:   { get_param: mariadb_galera_password }
+            $MARIADB_ROOT_PASSWORD:     { get_param: mariadb_root_password }
+            $MARIADB_DBADMIN_PASSWORD:  { get_param: mariadb_dbadmin_password }
+            $MARIADB_HAPROXY_PASSWORD:  { get_param: mariadb_haproxy_password }
+            $WC_NOTIFY:                 { get_attr: [ 'wait_handle', 'curl_cli' ] }
+          template: { get_file:  scripts/mariadb_galera_server.sh }
+
+  software_deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: software_config
+      server:
+        get_resource: instance
+
+  instance:
+    type: OS::Nova::Server
+    properties:
+      name:
+        str_replace:
+          template: "%STACK_NAME%-%RANDOM_HOSTNAME%"
+          params:
+            '%STACK_NAME%':      { get_param: heat_stack_name }
+            '%RANDOM_HOSTNAME%': { get_attr: [ random_hostname, value ] }
+      flavor: { get_param: instance_type }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_param: network_port }
+      block_device_mapping_v2:
+        - device_name: sda
+          volume_id: { get_resource: os_volume }
+          delete_on_termination: true
+      user_data_format: SOFTWARE_CONFIG
+
+outputs:
+  networks:
+    description: Network block for the Instance
+    value: { get_attr: [ instance, networks ] }
+
+  instance_ip:
+    description: The IP address of the Instance
+    value: { get_attr: [ instance, first_address ] }
+
+  software_deployment_stdout:
+    value: { get_attr: [ software_deployment, deploy_stdout ] }
+

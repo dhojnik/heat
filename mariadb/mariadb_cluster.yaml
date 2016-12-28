@@ -1,0 +1,316 @@
+heat_template_version: 2016-10-14
+
+description: CentOS cluster
+
+parameter_groups:
+  - label: CentOS cluster configuration
+    description: CentOS cluster configuration
+    parameters:
+      - image_id
+      - instance_type
+      - key_name
+      - network
+      - os_volume_size
+      - mariadb_volume_count
+      - mariadb_volume_size
+      - protocols
+      - ports
+      - proxy
+
+parameters:
+  image_id:
+    type: string
+    label: Instance Image ID
+    description: Instance Image
+    default: 'CentOS-7.3.1611.heat.2'
+    constraints:
+      - custom_constraint: glance.image
+  instance_type:
+    type: string
+    label: MariaDB Instance Type
+    description: Type of Instance
+    default: 'm1.medium'
+    constraints:
+      - custom_constraint: nova.flavor
+  key_name:
+    type: string
+    label: Key Name
+    description: SSH Keys
+    default: 'admin'
+    constraints:
+      - custom_constraint: nova.keypair
+  network:
+    label: Network
+    type: string
+    description: Network
+    default: 'admin'
+    constraints:
+      - custom_constraint: neutron.network
+  os_volume_size:
+    label: OS Volume Size in GB
+    type: number
+    default: 10
+    constraints:
+    - range:
+        min: 10
+        max: 100
+  mariadb_volume_size:
+    label: Data Volume Size in GB
+    type: number
+    default: 10
+    constraints:
+    - range: {min: 1, max: 100}
+  mariadb_volume_count:
+    label: Data Volume Count
+    type: number
+    default: 1
+    constraints:
+    - range: {min: 0, max: 10}
+  protocols:
+    label: protocols
+    default: 'tcp'
+    type: comma_delimited_list
+  ports:
+    label: ports
+    default: '3306,4306,9000'
+    type: comma_delimited_list
+  proxy:
+    type: string
+    default: 'http://10.199.51.5:3128'
+    description: Proxy URL
+
+resources:
+  mariadb_root_password:
+    type: OS::Heat::RandomString
+    properties:
+      length: 16
+      sequence: lettersdigits
+
+  mariadb_dbadmin_password:
+    type: OS::Heat::RandomString
+    properties:
+      length: 16
+      sequence: lettersdigits
+
+  mariadb_galera_password:
+    type: OS::Heat::RandomString
+    properties:
+      length: 16
+      sequence: lettersdigits
+
+  mariadb_haproxy_password:
+    type: OS::Heat::RandomString
+    properties:
+      length: 16
+      sequence: lettersdigits
+
+  security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      rules:
+        repeat:
+          for_each:
+            '%PORT%': { get_param: ports }
+            '%PROTOCOL%': { get_param: protocols }
+          template:
+            protocol: '%PROTOCOL%'
+            port_range_min: '%PORT%'
+            port_range_max: '%PORT%'
+
+  network_port_server01:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: network }
+      security_groups:
+        - default
+        - { get_resource: security_group }
+
+  network_port_server02:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: network }
+      security_groups:
+        - default
+        - { get_resource: security_group }
+
+  network_port_server03:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: network }
+      security_groups:
+        - default
+        - { get_resource: security_group }
+
+  server01:
+    type: OS::Heat::ResourceGroup
+    properties:
+      count: 1
+      resource_def:
+        type: mariadb_server.yaml
+        properties:
+          image_id:                 { get_param: image_id }
+          instance_type:            { get_param: instance_type }
+          key_name:                 { get_param: key_name }
+          network_port:             { get_resource: network_port_server01 }
+          os_volume_size:           { get_param: os_volume_size }
+          data_volume_size:         { get_param: mariadb_volume_size }
+          data_volume_count:        { get_param: mariadb_volume_count }
+          heat_stack_name:          { get_param: "OS::stack_name" }
+          proxy:                    { get_param: proxy }
+          server01_ip:              { get_attr: [ network_port_server01, fixed_ips, 0, ip_address] }
+          server02_ip:              { get_attr: [ network_port_server02, fixed_ips, 0, ip_address] }
+          server03_ip:              { get_attr: [ network_port_server03, fixed_ips, 0, ip_address] }
+          mariadb_galera_password:  { get_attr: [ mariadb_galera_password, value ] }
+          mariadb_root_password:    { get_attr: [ mariadb_root_password, value ] }
+          mariadb_dbadmin_password: { get_attr: [ mariadb_dbadmin_password, value ] }
+          mariadb_haproxy_password: { get_attr: [ mariadb_haproxy_password, value ] }
+
+  server02:
+    type: OS::Heat::ResourceGroup
+    depends_on: [ server01 ]
+    properties:
+      count: 1
+      resource_def:
+        type: mariadb_server.yaml
+        properties:
+          image_id:                 { get_param: image_id }
+          instance_type:            { get_param: instance_type }
+          key_name:                 { get_param: key_name }
+          network_port:             { get_resource: network_port_server02 }
+          os_volume_size:           { get_param: os_volume_size }
+          data_volume_size:         { get_param: mariadb_volume_size }
+          data_volume_count:        { get_param: mariadb_volume_count }
+          heat_stack_name:          { get_param: "OS::stack_name" }
+          proxy:                    { get_param: proxy }
+          server01_ip:              { get_attr: [ network_port_server01, fixed_ips, 0, ip_address] }
+          server02_ip:              { get_attr: [ network_port_server02, fixed_ips, 0, ip_address] }
+          server03_ip:              { get_attr: [ network_port_server03, fixed_ips, 0, ip_address] }
+          mariadb_galera_password:  { get_attr: [ mariadb_galera_password, value ] }
+          mariadb_root_password:    { get_attr: [ mariadb_root_password, value ] }
+          mariadb_dbadmin_password: { get_attr: [ mariadb_dbadmin_password, value ] }
+          mariadb_haproxy_password: { get_attr: [ mariadb_haproxy_password, value ] }
+
+  server03:
+    type: OS::Heat::ResourceGroup
+    depends_on: [ server01 ]
+    properties:
+      count: 1
+      resource_def:
+        type: mariadb_server.yaml
+        properties:
+          image_id:                 { get_param: image_id }
+          instance_type:            { get_param: instance_type }
+          key_name:                 { get_param: key_name }
+          network_port:             { get_resource: network_port_server03 }
+          os_volume_size:           { get_param: os_volume_size }
+          data_volume_size:         { get_param: mariadb_volume_size }
+          data_volume_count:        { get_param: mariadb_volume_count }
+          heat_stack_name:          { get_param: "OS::stack_name" }
+          proxy:                    { get_param: proxy }
+          server01_ip:              { get_attr: [ network_port_server01, fixed_ips, 0, ip_address] }
+          server02_ip:              { get_attr: [ network_port_server02, fixed_ips, 0, ip_address] }
+          server03_ip:              { get_attr: [ network_port_server03, fixed_ips, 0, ip_address] }
+          mariadb_galera_password:  { get_attr: [ mariadb_galera_password, value ] }
+          mariadb_root_password:    { get_attr: [ mariadb_root_password, value ] }
+          mariadb_dbadmin_password: { get_attr: [ mariadb_dbadmin_password, value ] }
+          mariadb_haproxy_password: { get_attr: [ mariadb_haproxy_password, value ] }
+
+outputs:
+  mariadb_env_rc:
+    label: MariaDB environment variables
+    description: |
+      MariaDB environment variables
+    value:
+      list_join: [ "", get_attr: [ server01, software_deployment_stdout ] ]
+
+  mariadb_cluster_uri:
+    description: |
+      MariaDB Galera multi-master cluster URIs.
+      Requests are load balanced to servers with least connections.
+    value:
+      str_replace:
+        template: |
+          - %SERVER01_IP%:3306
+          - %SERVER02_IP%:3306
+          - %SERVER03_IP%:3306
+        params:
+          '%SERVER01_IP%':  { get_attr: [ network_port_server01, fixed_ips, 0, ip_address ] }
+          '%SERVER02_IP%':  { get_attr: [ network_port_server02, fixed_ips, 0, ip_address ] }
+          '%SERVER03_IP%':  { get_attr: [ network_port_server03, fixed_ips, 0, ip_address ] }
+
+  mariadb_direct_uri:
+    description: |
+      Direct MariaDB URIs.
+      Requests are "not" load balanced to other servers.
+    value:
+      str_replace:
+        template: |
+          - %SERVER01_IP%:4306
+          - %SERVER02_IP%:4306
+          - %SERVER03_IP%:4306
+        params:
+          '%SERVER01_IP%':  { get_attr: [ network_port_server01, fixed_ips, 0, ip_address ] }
+          '%SERVER02_IP%':  { get_attr: [ network_port_server02, fixed_ips, 0, ip_address ] }
+          '%SERVER03_IP%':  { get_attr: [ network_port_server03, fixed_ips, 0, ip_address ] }
+
+  haproxy_stats_url:
+    description: |
+      HAProxy Stats URLs.
+    value:
+      str_replace:
+        template: |
+          - http://%SERVER01_IP%:9000/haproxy_stats
+          - http://%SERVER02_IP%:9000/haproxy_stats
+          - http://%SERVER03_IP%:9000/haproxy_stats
+        params:
+          '%SERVER01_IP%':  { get_attr: [ network_port_server01, fixed_ips, 0, ip_address ] }
+          '%SERVER02_IP%':  { get_attr: [ network_port_server02, fixed_ips, 0, ip_address ] }
+          '%SERVER03_IP%':  { get_attr: [ network_port_server03, fixed_ips, 0, ip_address ] }
+
+  haproxy_credentials:
+    description: |
+      HAProxy admin user credentials
+    value:
+      str_replace:
+        template: |
+          username: %HAPROXY_USERNAME%
+          password: %HAPROXY_PASSWORD%
+        params:
+          '%HAPROXY_USERNAME%': 'haproxy'
+          '%HAPROXY_PASSWORD%': { get_attr: [ mariadb_haproxy_password, value ] }
+
+  galera_credentials:
+    description: |
+      Galera admin user credentials
+    value:
+      str_replace:
+        template: |
+          username: %GALERA_USERNAME%
+          password: %GALERA_PASSWORD%
+        params:
+          '%GALERA_USERNAME%': 'galera_admin'
+          '%GALERA_PASSWORD%': { get_attr: [ mariadb_galera_password, value ] }
+
+  mariadb_credentials:
+    description: |
+      MariaDB root user credentials, only allowed to login from localhost
+    value:
+      str_replace:
+        template: |
+          username: %MARIADB_USERNAME%
+          password: %MARIADB_PASSWORD%
+        params:
+          '%MARIADB_USERNAME%':  'root'
+          '%MARIADB_PASSWORD%':  { get_attr: [ mariadb_root_password, value ] }
+
+  dbadmin_credentials:
+    description: |
+      MariaDB dbadmin user credentials.
+    value:
+      str_replace:
+        template: |
+          username: %DBADMIN_USERNAME%
+          password: %DBADMIN_PASSWORD%
+        params:
+          '%DBADMIN_USERNAME%':  'dbadmin'
+          '%DBADMIN_PASSWORD%':  { get_attr: [ mariadb_dbadmin_password, value ] }
