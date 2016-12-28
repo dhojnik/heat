@@ -1,0 +1,32 @@
+# Environment specific parameters
+parameters:
+  image_id: 'CentOS-7.3.1611.heat.2'
+  mariadb_instance_type: 'm1.micro'
+  server_instance_type: 'm1.medium'
+  agent_instance_type: 'm1.medium'
+  key_name: 'admin'
+  network: 'admin'
+  os_volume_size: 10
+  mariadb_volume_count: 0
+  mariadb_volume_size: 20
+  server_volume_count: 1
+  server_volume_size: 20
+  agent_volume_count: 1
+  agent_volume_size: 20
+  autoscaling: true
+  server_node_count: 1
+  worker_count: 3
+  worker_nodes_min: 3
+  worker_nodes_max: 100
+  protocols: "tcp"
+  ports: "80,443,500,2181,2224,2376,2888,3000,3001,3002,3003,3004,3005,3006,3007,3008,3009,3010,3888,4500,6379,8000,8080,8081,8082,8083,8084,8085,8100,8181,8443,9000,9100,9345"
+  proxy: 'http://10.199.51.5:3128'
+  rancher_username: 'admin'
+  rancher_password: 'password'
+  rancher_server_version: 'v1.2.1'
+  rancher_agent_version: 'v1.1.1'
+
+# openstack orchestration template validate --template rancher_cluster.yaml
+# openstack orchestration template validate --template rancher_cluster.yaml -e environments/rancher_env.yaml
+# openstack stack create -t rancher_cluster.yaml -e environments/rancher_env.yaml rancher
+# openstack stack update -t rancher_cluster.yaml -e environments/rancher_env.yaml rancher

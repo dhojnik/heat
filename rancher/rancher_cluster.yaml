@@ -1,0 +1,474 @@
+heat_template_version: 2016-10-14
+
+description: CentOS cluster
+
+parameter_groups:
+  - label: CentOS cluster configuration
+    description: CentOS cluster configuration
+    parameters:
+      - image_id
+      - mariadb_instance_type
+      - server_instance_type
+      - agent_instance_type
+      - key_name
+      - network
+      - os_volume_size
+      - mariadb_volume_count
+      - mariadb_volume_size
+      - server_volume_count
+      - server_volume_size
+      - agent_volume_count
+      - agent_volume_size
+      - autoscaling
+      - server_node_count
+      - worker_count
+      - worker_nodes_min
+      - worker_nodes_max
+      - protocols
+      - ports
+      - proxy
+      - rancher_username
+      - rancher_password
+      - rancher_server_version
+      - rancher_agent_version
+
+parameters:
+  image_id:
+    type: string
+    label: Instance Image ID
+    default: 'CentOS-7.3.1611.heat.2'
+    constraints:
+      - custom_constraint: glance.image
+  mariadb_instance_type:
+    type: string
+    label: Rancher MariaDB Instance Type
+    default: 'm1.micro'
+    constraints:
+      - custom_constraint: nova.flavor
+  server_instance_type:
+    type: string
+    label: Rancher Server Instance Type
+    default: 'm1.medium'
+    constraints:
+      - custom_constraint: nova.flavor
+  agent_instance_type:
+    type: string
+    label: Rancher Agent Instance Type
+    default: 'm1.medium'
+    constraints:
+      - custom_constraint: nova.flavor
+  key_name:
+    type: string
+    label: SSH Keys
+    default: 'admin'
+    constraints:
+      - custom_constraint: nova.keypair
+  network:
+    type: string
+    label: Network Name
+    default: 'admin'
+    constraints:
+      - custom_constraint: neutron.network
+  os_volume_size:
+    type: number
+    label: OS Volume Size in GB
+    default: 10
+    constraints:
+    - range: {min: 10, max: 100}
+  mariadb_volume_size:
+    type: number
+    label: Data Volume Size in GB
+    default: 20
+    constraints:
+    - range: {min: 1, max: 100}
+  mariadb_volume_count:
+    type: number
+    label: Data Volume Count
+    default: 1
+    constraints:
+    - range: {min: 0, max: 10}
+  server_volume_size:
+    type: number
+    label: Data Volume Size in GB
+    default: 20
+    constraints:
+    - range: {min: 1, max: 100}
+  server_volume_count:
+    type: number
+    label: Data Volume Count
+    default: 1
+    constraints:
+    - range: {min: 0, max: 10}
+  agent_volume_size:
+    type: number
+    label: Data Volume Size in GB
+    default: 20
+    constraints:
+    - range: {min: 1, max: 100}
+  agent_volume_count:
+    type: number
+    label: Data Volume Count
+    default: 1
+    constraints:
+    - range: {min: 0, max: 10}
+  autoscaling:
+    type: boolean
+    label: Automatically scale up/down worker nodes
+    default: true
+  server_node_count:
+    type: number
+    label: Rancher Server Node Count
+    default: 1
+    constraints:
+    - range: {min: 1, max: 10}
+  worker_count:
+    type: number
+    label: Initial Number of Worker Nodes
+    default: 3
+  worker_nodes_min:
+    type: number
+    label: Minimum Number of Worker Nodes If Autoscaling is Enabled
+    default: 3
+  worker_nodes_max:
+    type: number
+    label: Maximum Number of Worker Nodes If Autoscaling is Enabled
+    default: 100
+  protocols:
+    type: comma_delimited_list
+    label: Security Group Protocols to Allow
+    default: "tcp"
+  ports:
+    type: comma_delimited_list
+    label: Security Group Ports to Allow
+    default: "80,443,500,2181,2224,2376,2888,3000,3001,3002,3003,3004,3005,3006,3007,3008,3009,3010,3888,4500,6379,8000,8080,8081,8082,8083,8084,8085,8100,8181,8443,9000,9100,9345"
+  proxy:
+    type: string
+    description: Proxy URL for http and https Access
+    default: 'http://10.199.51.5:3128'
+  rancher_username:
+    type: string
+    description: Rancher Admin username
+    default: 'admin'
+  rancher_password:
+    type: string
+    description: Rancher Admin password
+    default: 'password'
+  rancher_server_version:
+    type: string
+    description: Rancher server version
+    default: 'v1.2.1'
+  rancher_agent_version:
+    type: string
+    description: Rancher agent version
+    default: 'v1.1.1'
+
+resources:
+  mariadb_root_password:
+    type: OS::Heat::RandomString
+    properties:
+      length: 16
+      sequence: lettersdigits
+
+  mariadb_dbadmin_password:
+    type: OS::Heat::RandomString
+    properties:
+      length: 16
+      sequence: lettersdigits
+
+  mariadb_rancher_password:
+    type: OS::Heat::RandomString
+    properties:
+      length: 16
+      sequence: lettersdigits
+
+  security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      rules:
+        repeat:
+          for_each:
+            '%PORT%': { get_param: ports }
+            '%PROTOCOL%': { get_param: protocols }
+          template:
+            protocol: '%PROTOCOL%'
+            port_range_min: '%PORT%'
+            port_range_max: '%PORT%'
+
+  mariadb_server:
+    type: OS::Heat::ResourceGroup
+    properties:
+      count: 1
+      resource_def:
+        type: ./mariadb_server.yaml
+        properties:
+          image_id:           { get_param: image_id }
+          instance_type:      { get_param: mariadb_instance_type }
+          key_name:           { get_param: key_name }
+          network:            { get_param: network }
+          os_volume_size:     { get_param: os_volume_size }
+          data_volume_size:   { get_param: mariadb_volume_size }
+          data_volume_count:  { get_param: mariadb_volume_count }
+          security_group:     { get_resource: security_group }
+          heat_stack_name:    { get_param: "OS::stack_name" }
+          proxy:              { get_param: proxy }
+          mariadb_root_password:  { get_attr: [ mariadb_root_password, value ] }
+          mariadb_dbadmin_password:  { get_attr: [ mariadb_dbadmin_password, value ] }
+          mariadb_rancher_password:  { get_attr: [ mariadb_rancher_password, value ] }
+
+  rancher_master:
+    type: OS::Heat::ResourceGroup
+    depends_on: [ mariadb_server ]
+    properties:
+      count: { get_param: server_node_count }
+      resource_def:
+        type: ./rancher_server.yaml
+        properties:
+          image_id:               { get_param: image_id }
+          instance_type:          { get_param: server_instance_type }
+          key_name:               { get_param: key_name }
+          network:                { get_param: network }
+          os_volume_size:         { get_param: os_volume_size }
+          data_volume_size:       { get_param: server_volume_size }
+          data_volume_count:      { get_param: server_volume_count }
+          security_group:         { get_resource: security_group }
+          heat_stack_name:        { get_param: "OS::stack_name" }
+          proxy:                  { get_param: proxy }
+          rancher_username:       { get_param: rancher_username }
+          rancher_password:       { get_param: rancher_password }
+          rancher_server_version: { get_param: rancher_server_version }
+          mariadb_rancher_password: { get_attr: [ mariadb_rancher_password, value ] }
+          rancher_mariadb_server:
+            list_join: [ " ", get_attr: [ mariadb_server, instance_ip ] ]
+          mariadb_output:
+            list_join: [ " ", get_attr: [ mariadb_server, software_deployment_stdout ] ]
+          server_type: "primary"
+
+  rancher_agents:
+    type: OS::Heat::AutoScalingGroup
+    depends_on: [ mariadb_server, rancher_master ]
+    properties:
+      desired_capacity: { get_param: worker_count }
+      min_size:         { get_param: worker_nodes_min }
+      max_size:         { get_param: worker_nodes_max }
+      resource:
+        type: ./rancher_agent.yaml
+        properties:
+          image_id:               { get_param: image_id }
+          instance_type:          { get_param: agent_instance_type }
+          key_name:               { get_param: key_name }
+          network:                { get_param: network }
+          os_volume_size:         { get_param: os_volume_size }
+          data_volume_size:       { get_param: agent_volume_size }
+          data_volume_count:      { get_param: agent_volume_count }
+          security_group:         { get_resource: security_group }
+          heat_stack_name:        { get_param: "OS::stack_name" }
+          rancher_agent_version:  { get_param: rancher_agent_version }
+          metadata:               { "metering.stack": { get_param: "OS::stack_id" } }
+          proxy:                  { get_param: proxy }
+          registration_url:
+            list_join: [ " ", get_attr: [ rancher_master, software_deployment_stdout ] ]
+
+  rancher_slave:
+    type: OS::Heat::ResourceGroup
+    depends_on: [ mariadb_server, rancher_master, rancher_agents ]
+    properties:
+      count: { get_param: server_node_count }
+      resource_def:
+        type: ./rancher_server.yaml
+        properties:
+          image_id:               { get_param: image_id }
+          instance_type:          { get_param: server_instance_type }
+          key_name:               { get_param: key_name }
+          network:                { get_param: network }
+          os_volume_size:         { get_param: os_volume_size }
+          data_volume_size:       { get_param: server_volume_size }
+          data_volume_count:      { get_param: server_volume_count }
+          security_group:         { get_resource: security_group }
+          heat_stack_name:        { get_param: "OS::stack_name" }
+          proxy:                  { get_param: proxy }
+          rancher_username:       { get_param: rancher_username }
+          rancher_password:       { get_param: rancher_password }
+          rancher_server_version: { get_param: rancher_server_version }
+          mariadb_rancher_password: { get_attr: [ mariadb_rancher_password, value ] }
+          rancher_master_ip:
+            list_join: [ " ", get_attr: [ rancher_master, instance_ip ] ]
+          rancher_mariadb_server:
+            list_join: [ " ", get_attr: [ mariadb_server, instance_ip ] ]
+          mariadb_output:
+            list_join: [ " ", get_attr: [ mariadb_server, software_deployment_stdout ] ]
+          server_type: "secondary"
+
+  scale_up_policy:
+    type: OS::Heat::ScalingPolicy
+    properties:
+      adjustment_type: change_in_capacity
+      auto_scaling_group_id:
+        get_resource: rancher_agents
+      cooldown: 60
+      scaling_adjustment: 1
+
+  scale_down_policy:
+    type: OS::Heat::ScalingPolicy
+    properties:
+      adjustment_type: change_in_capacity
+      auto_scaling_group_id: { get_resource: rancher_agents }
+      cooldown: 60
+      scaling_adjustment: '-1'
+
+  cpu_alarm_high:
+    type: OS::Aodh::Alarm
+    properties:
+      meter_name: cpu_util
+      statistic: avg
+      period: 60
+      evaluation_periods: 3
+      threshold: 50
+      alarm_actions:
+        - get_attr:
+          - scale_up_policy
+          - alarm_url
+      matching_metadata:
+        'metadata.user_metadata.stack':
+          get_param: "OS::stack_id"
+      comparison_operator: gt
+
+  cpu_alarm_low:
+    type: OS::Aodh::Alarm
+    properties:
+      meter_name: cpu_util
+      statistic: avg
+      period: 60
+      evaluation_periods: 3
+      threshold: 5
+      enabled: { get_param: autoscaling }
+      alarm_actions:
+        - { get_attr: [scale_down_policy, alarm_url] }
+      matching_metadata: { 'metadata.user_metadata.stack': {get_param: "OS::stack_id"} }
+      comparison_operator: lt
+
+outputs:
+  mariadb_env_rc:
+    label: MariaDB environment variables
+    description: |
+      MariaDB environment variables
+    value:
+      list_join: [ "", get_attr: [ mariadb_server, software_deployment_stdout ] ]
+
+  rancher_registration_url:
+    description: |
+      Rancher registration URL
+    value:
+      str_replace:
+        template: |
+          %URL%
+        params:
+          '%URL%': { get_attr: [ rancher_master, software_deployment_stdout ] }
+
+  rancher_env_rc:
+    description: Rancher environment RC
+    value:
+      str_replace:
+        template: |
+          RANCHER_URL is http://%SERVER_IP%:8080
+          RANCHER_ACCESS_KEY is %RANCHER_ACCESS_KEY%
+          RANCHER_SECRET_KEY is %RANCHER_SECRET_KEY%
+        params:
+          '%SERVER_IP%': { get_attr: [ rancher_master, instance_ip ] }
+          '%RANCHER_ACCESS_KEY%': { get_attr: [ rancher_master, rancher_access_key ] }
+          '%RANCHER_SECRET_KEY%': { get_attr: [ rancher_master, rancher_secret_key ] }
+
+  rancher_master_ip:
+    label: Rancher Server IPs
+    description: |
+      Rancher Server IP addresses
+    value:
+      str_replace:
+        template: |
+          %SERVER_IP%
+        params:
+          '%SERVER_IP%': { get_attr: [ rancher_master, instance_ip ] }
+
+  rancher_access_key:
+    description: Rancher Access Key
+    value:
+      list_join: [ "", get_attr: [ rancher_master, rancher_access_key ] ]
+
+  rancher_secret_key:
+    description: Rancher Secret Key
+    value:
+      list_join: [ "", get_attr: [ rancher_master, rancher_secret_key ] ]
+
+  agent_env_rc:
+    label: Rancher Agent environment variables
+    description: |
+      Rancher Agent environment variables
+    value:
+      str_replace:
+        template: |
+          %ENV%
+        params:
+          '%ENV%': { get_attr: [ rancher_agents, software_deployment_stdout ] }
+
+  agent_env_rc_2:
+    label: Rancher Agent environment variables
+    description: |
+      Rancher Agent environment variables
+    value:
+      list_join: [ "", get_attr: [ rancher_agents, outputs_list, software_deployment_stdout ] ]
+
+  rancher_cluster_size:
+    description: >
+      This is the current size of the AutoScalingGroup.
+    value: { get_attr: [ rancher_agents, current_size ] }
+
+  rancher_agent_name_list:
+    description: >
+      List of server names that are part of AutoScalingGroup.
+    value:
+      list_join: [ "\n", get_attr: [ rancher_agents, outputs_list, instance_name ] ]
+
+  rancher_agent_ip:
+    description: >
+      List of ip addresses of the servers in AutoScalingGroup.
+    value: { get_attr: [ rancher_agents, outputs_list, instance_ip ] }
+
+  rancher_agent_ip_list:
+    description: >
+      List of ip addresses of the servers in AutoScalingGroup.
+    value:
+      list_join: [ "\n", get_attr: [ rancher_agents, outputs_list, instance_ip ] ]
+
+  scale_up_url:
+    description: >
+      This URL is the webhook to scale up the autoscaling group.  You
+      can invoke the scale-up operation by doing an HTTP POST to this
+      URL; no body nor extra headers are needed.
+    value: { get_attr: [ scale_up_policy, alarm_url ] }
+
+  scale_down_url:
+    description: >
+      This URL is the webhook to scale down the autoscaling group.
+      You can invoke the scale-down operation by doing an HTTP POST to
+      this URL; no body nor extra headers are needed.
+    value: { get_attr: [ scale_down_policy, alarm_url ] }
+
+  ceilometer_query:
+    description: >
+      This is a Ceilometer query for statistics on the cpu_util meter
+      Samples about OS::Nova::Server instances in this stack.  The -q
+      parameter selects Samples according to the subject's metadata.
+      When a VM's metadata includes an item of the form metering.X=Y,
+      the corresponding Ceilometer resource has a metadata item of the
+      form user_metadata.X=Y and samples about resources so tagged can
+      be queried with a Ceilometer query term of the form
+      metadata.user_metadata.X=Y.  In this case the nested stacks give
+      their VMs metadata that is passed as a nested stack parameter,
+      and this stack passes a metadata of the form metering.stack=Y,
+      where Y is this stack's ID.
+    value:
+      str_replace:
+        template: >
+          ceilometer statistics -m cpu_util
+          -q metadata.user_metadata.stack=%STACKVAL% -p 60 -a avg
+        params:
+          '%STACKVAL%': { get_param: "OS::stack_id" }
