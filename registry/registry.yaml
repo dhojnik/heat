@@ -1,0 +1,178 @@
+heat_template_version: 2016-10-14
+
+description: Docker registry:2
+
+parameter_groups:
+  - label: Docker registry configuration
+    description: Docker registry configuration
+    parameters:
+      - image_id
+      - instance_type
+      - key_name
+      - network
+      - os_volume_size
+      - registry_volume_size
+      - registry_volume_count
+      - docker_volume_size
+      - docker_volume_count
+      - registry_node_count
+      - docker_node_count
+      - protocols
+      - ports
+      - proxy
+
+parameters:
+  image_id:
+    type: string
+    label: Instance Image ID
+    default: 'CentOS-7.3.1611.heat.2'
+    constraints:
+      - custom_constraint: glance.image
+  instance_type:
+    type: string
+    label: Instance Type
+    default: 'm1.micro'
+    constraints:
+      - custom_constraint: nova.flavor
+  key_name:
+    type: string
+    label: SSH Keys
+    default: 'admin'
+    constraints:
+      - custom_constraint: nova.keypair
+  network:
+    type: string
+    label: Network Name
+    default: 'admin'
+    constraints:
+      - custom_constraint: neutron.network
+  os_volume_size:
+    type: number
+    label: OS Volume Size in GB
+    default: 10
+    constraints:
+    - range: {min: 10, max: 100}
+  registry_volume_size:
+    type: number
+    label: Volume Size in GB
+    default: 20
+    constraints:
+    - range: {min: 1, max: 100}
+  registry_volume_count:
+    type: number
+    label: Volume Count
+    default: 1
+    constraints:
+    - range: {min: 0, max: 10}
+  docker_volume_size:
+    type: number
+    label: Volume Size in GB
+    default: 20
+    constraints:
+    - range: {min: 1, max: 100}
+  docker_volume_count:
+    type: number
+    label: Volume Count
+    default: 1
+    constraints:
+    - range: {min: 0, max: 10}
+  registry_node_count:
+    type: number
+    label: Number of Registry nodes
+    default: 1
+    constraints:
+    - range: {min: 1, max: 1}
+  docker_node_count:
+    type: number
+    label: Number of Docker nodes
+    default: 0
+  protocols:
+    type: comma_delimited_list
+    label: Security Group Protocols to Allow
+    default: "tcp"
+  ports:
+    type: comma_delimited_list
+    label: Security Group Ports to Allow
+    default: "22,5000"
+  proxy:
+    type: string
+    description: Proxy URL for http and https Access
+    default: 'http://10.199.51.5:3128'
+
+resources:
+  security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      rules:
+        repeat:
+          for_each:
+            '%PORT%': { get_param: ports }
+            '%PROTOCOL%': { get_param: protocols }
+          template:
+            protocol: '%PROTOCOL%'
+            port_range_min: '%PORT%'
+            port_range_max: '%PORT%'
+
+  registry_node:
+    type: OS::Heat::ResourceGroup
+    properties:
+      count: { get_param: registry_node_count }
+      resource_def:
+        type: ./registry_node.yaml
+        properties:
+          image_id:               { get_param: image_id }
+          instance_type:          { get_param: instance_type }
+          key_name:               { get_param: key_name }
+          network:                { get_param: network }
+          os_volume_size:         { get_param: os_volume_size }
+          registry_volume_size:   { get_param: registry_volume_size }
+          registry_volume_count:  { get_param: registry_volume_count }
+          docker_volume_size:     { get_param: docker_volume_size }
+          docker_volume_count:    { get_param: docker_volume_count }
+          security_group:         { get_resource: security_group }
+          heat_stack_name:        { get_param: "OS::stack_name" }
+          proxy:                  { get_param: proxy }
+
+  docker_node:
+    type: OS::Heat::ResourceGroup
+    depends_on: [ registry_node ]
+    properties:
+      count: { get_param: docker_node_count }
+      resource_def:
+        type: ./docker_node.yaml
+        properties:
+          image_id:               { get_param: image_id }
+          instance_type:          { get_param: instance_type }
+          key_name:               { get_param: key_name }
+          network:                { get_param: network }
+          os_volume_size:         { get_param: os_volume_size }
+          docker_volume_size:     { get_param: docker_volume_size }
+          docker_volume_count:    { get_param: docker_volume_count }
+          security_group:         { get_resource: security_group }
+          heat_stack_name:        { get_param: "OS::stack_name" }
+          proxy:                  { get_param: proxy }
+          registry_ip:
+            list_join: [ " ", get_attr: [ registry_node, instance_ip ] ]
+          registry_ca_cert:
+            list_join: [ " ", get_attr: [ registry_node, software_deployment_stdout ] ]
+
+outputs:
+  registry_ca_cert:
+    description: |
+      Docker Registry CA cert
+    value:
+      str_replace:
+        template: |
+          %CERT%
+        params:
+          '%CERT%': { get_attr: [ registry_node, software_deployment_stdout ] }
+
+  registry_ip:
+    description: |
+      Docker Registry IP addresses
+    value:
+      str_replace:
+        template: |
+          %SERVER_IP%
+        params:
+          '%SERVER_IP%': { get_attr: [ registry_node, instance_ip ] }
