@@ -20,6 +20,6 @@ murano package-create --template rancher_cluster.yaml \
     --resources-dir 'Resources/' \
     --logo logo.png
 
- zipinfo  rancher_cluster.zip
+zipinfo  rancher_cluster.zip
 
- murano package-import --categories Databases --is-public  mariadb_cluster.zip
+murano package-import --categories Databases --is-public  mariadb_cluster.zip

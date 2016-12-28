@@ -4,10 +4,10 @@ mkdir -p Resources/HotEnvironments
 mkdir -p Resources/HotFiles/fragments
 mkdir -p Resources/HotFiles/scripts
 
-rsync -a mariadb_server.yaml Resources/HotFiles/mariadb_server.yaml
-rsync -a fragments/ Resources/HotFiles/fragments/
-rsync -a scripts/ Resources/HotFiles/scripts/
-rsync -a environments/ Resources/HotEnvironments/
+rsync -a  --exclude='*.DS_Store' mariadb_server.yaml Resources/HotFiles/mariadb_server.yaml
+rsync -a  --exclude='*.DS_Store' fragments/ Resources/HotFiles/fragments/
+rsync -a  --exclude='*.DS_Store' scripts/ Resources/HotFiles/scripts/
+rsync -a  --exclude='*.DS_Store' environments/ Resources/HotEnvironments/
 
 murano package-create --template mariadb_cluster.yaml \
    --name 'MySQL Galera Cluster' \

@@ -19,6 +19,6 @@ murano package-create --template registry.yaml \
     --resources-dir 'Resources/' \
     --logo logo.png
 
- zipinfo  registry.zip
+zipinfo  registry.zip
 
- murano package-import --categories Databases --is-public  registry.zip
+murano package-import --categories Databases --is-public  registry.zip
