@@ -9,16 +9,23 @@ yum clean all
 
 # Configure MariaDB Storage
 
-if [[ ! -d /mysql ]]; then
-    mkdir /mysql
+if [[ ! -d /var/lib/mysql ]]; then
+    mkdir /var/lib/mysql
 fi
 
 if [[ -e /dev/sdb ]] && [[ ! -e /dev/sdb1 ]]; then
     parted /dev/sdb mklabel gpt
     parted -s -a optimal /dev/sdb mkpart primary 0% 100%
     mkfs.xfs -n ftype=1 /dev/sdb1
-    mount /dev/sdb1 /mysql
+    echo -e "/dev/sdb1                                 /var/lib/mysql          xfs     defaults        0 0" >> /etc/fstab
+    mount -a
 fi
+
+# Disable unneeded services
+
+systemctl disable auditd.service
+
+# Install MariaDB
 
 yum -y install mariadb-server
 
@@ -27,7 +34,6 @@ cat << HERE > /etc/my.cnf.d/mariadb.cnf
 open_files_limit = 8192
 max_connections = 8192
 bind-address = ${IPADDR}
-datadir=/mysql
 default-storage-engine = innodb
 innodb_file_per_table
 collation-server = utf8_general_ci

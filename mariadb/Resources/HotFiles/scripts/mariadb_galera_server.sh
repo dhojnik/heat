@@ -27,7 +27,7 @@ fi
 
 systemctl disable auditd.service
 
-# Install Mariadb Galera
+# Install MariaDB Galera
 
 yum -y install haproxy mariadb-galera-server
 

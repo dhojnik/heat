@@ -16,7 +16,7 @@ resources:
     type: OS::Cinder::Volume
     properties:
       size: { get_param: volume_size }
-      description: Volume for heat stack
+      description: Data Volume
 
   volume_attachment:
     type: OS::Cinder::VolumeAttachment

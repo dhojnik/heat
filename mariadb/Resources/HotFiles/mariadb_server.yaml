@@ -101,6 +101,7 @@ resources:
     properties:
       size: { get_param: os_volume_size }
       image: { get_param: image_id }
+      description: OS Volume
 
   data_volumes:
     type: OS::Heat::ResourceGroup
