@@ -1,0 +1,20 @@
+# Environment specific parameters
+parameters:
+  image_id: 'CentOS-7.3.1611.heat.2'
+  instance_type: 'm1.micro'
+  key_name: 'admin'
+  network: 'admin'
+  os_volume_size: 10
+  registry_volume_size: 20
+  registry_volume_count: 1
+  docker_volume_size: 20
+  docker_volume_count: 1
+  registry_node_count: 1
+  docker_node_count: 6
+  k8s_master_count: 1
+  proxy: 'http://10.199.51.5:3128'
+
+# openstack orchestration template validate --template kubernetes.yaml
+# openstack orchestration template validate --template kubernetes.yaml -e environments/kubernetes_env.yaml
+# openstack stack create -t kubernetes.yaml -e environments/kubernetes_env.yaml stage
+# openstack stack update -t kubernetes.yaml -e environments/kubernetes_env.yaml qa

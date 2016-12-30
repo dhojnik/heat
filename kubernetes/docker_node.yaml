@@ -1,0 +1,180 @@
+heat_template_version: 2016-10-14
+
+description: Single Instance template
+
+parameter_groups:
+  - label: Instance Configuration
+    description: Instance settings
+    parameters:
+      - image_id
+      - instance_type
+      - key_name
+      - network
+      - os_volume_size
+      - docker_volume_size
+      - docker_volume_count
+      - security_group
+      - heat_stack_name
+      - proxy
+      - registry_ip
+      - registry_ca_cert
+      - k8s_master_ip
+      - k8s_token
+
+parameters:
+  image_id:
+    type: string
+    label: Image ID
+    description: Instance Image
+    constraints:
+      - custom_constraint: glance.image
+  instance_type:
+    type: string
+    label: Instance Type
+    description: Type of Instance
+    constraints:
+      - custom_constraint: nova.flavor
+  key_name:
+    type: string
+    label: Key Name
+    description: SSH Keys
+    constraints:
+      - custom_constraint: nova.keypair
+  network:
+    label: Network
+    type: string
+    description: Network
+    constraints:
+      - custom_constraint: neutron.network
+  os_volume_size:
+    label: OS Volume Size in GB
+    type: number
+    constraints:
+    - range: { min: 10, max: 100 }
+  docker_volume_size:
+    label: Data Volume Size in GB
+    type: number
+    constraints:
+    - range: { min: 1, max: 100 }
+  docker_volume_count:
+    label: Data Volume Count
+    type: number
+    constraints:
+    - range: { min: 0, max: 10 }
+  security_group:
+    type: string
+    description: Security group to apply to ports
+  heat_stack_name:
+    label: Main heat stack name
+    type: string
+  proxy:
+    type: string
+    description: Proxy URL
+  registry_ip:
+    type: string
+    description: IP address for docker registry node
+    default: "127.0.0.1"
+  registry_ca_cert:
+    type: string
+    description: Docker registry ca cert
+    default: "NULL"
+  k8s_master_ip:
+    type: string
+    description: IP address for k8s master node
+    default: "127.0.0.1"
+  k8s_token:
+    type: string
+    description: K8s node registration token
+    default: "NULL"
+
+resources:
+  random_hostname:
+    type: OS::Heat::RandomString
+    properties:
+      length: 8
+      character_classes: [ {"min": 6, "class": lowercase}, {"min": 2, "class": digits} ]
+
+  os_volume:
+    type: OS::Cinder::Volume
+    properties:
+      size: { get_param: os_volume_size }
+      image: { get_param: image_id }
+      description: OS Volume
+
+  network_port:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: network }
+      security_groups:
+        - default
+        - { get_param: security_group }
+
+  docker_volume:
+    type: OS::Heat::ResourceGroup
+    properties:
+      count: { get_param: docker_volume_count }
+      resource_def:
+        type: fragments/volumes.yaml
+        properties:
+          instance_id: { get_resource: instance }
+          volume_size: { get_param: docker_volume_size }
+
+  wait_condition:
+    type: OS::Heat::WaitCondition
+    properties:
+      handle: { get_resource: wait_handle }
+      count: 1
+      timeout: 600
+
+  wait_handle:
+    type: OS::Heat::WaitConditionHandle
+
+  software_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        str_replace:
+          params:
+            $PROXY_URL:         { get_param: proxy }
+            $REGISTRY_IP:       { get_param: registry_ip }
+            $REGISTRY_CA_CERT:  { get_param: registry_ca_cert }
+            $K8S_MASTER_IP:     { get_param: k8s_master_ip }
+            $K8S_TOKEN:         { get_param: k8s_token }
+            $WC_NOTIFY:         { get_attr: [ 'wait_handle', 'curl_cli' ] }
+          template: { get_file: scripts/docker.sh }
+
+  software_deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: software_config
+      server:
+        get_resource: instance
+
+  instance:
+    type: OS::Nova::Server
+    properties:
+      name:
+        str_replace:
+          template: "%STACK_NAME%-docker-%RANDOM_HOSTNAME%"
+          params:
+            '%STACK_NAME%':      { get_param: heat_stack_name }
+            '%RANDOM_HOSTNAME%': { get_attr: [ random_hostname, value ] }
+      flavor: { get_param: instance_type }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: network_port }
+      block_device_mapping_v2:
+        - device_name: sda
+          volume_id: { get_resource: os_volume }
+          delete_on_termination: true
+      user_data_format: SOFTWARE_CONFIG
+
+outputs:
+  instance_ip:
+    description: The IP address of the Instance
+    value: { get_attr: [ instance, first_address ] }
+
+  software_deployment_stdout:
+    value: { get_attr: [ software_deployment, deploy_stdout ] }
