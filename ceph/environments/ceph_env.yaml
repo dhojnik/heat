@@ -1,0 +1,26 @@
+# Environment specific parameters
+parameters:
+  image_id: 'CentOS-7.3.1611.heat.2'
+  adm_instance_type: 'm1.micro'
+  mon_instance_type: 'm1.small'
+  osd_instance_type: 'm1.small'
+  mds_instance_type: 'm1.micro'
+  key_name: 'admin'
+  network: 'admin'
+  os_volume_size: 10
+  osd_volume_size: 10
+  osd_volume_count: 3
+  adm_node_count: 1
+  mon_node_count: 3
+  osd_node_count: 3
+  mds_node_count: 2
+  protocols: "tcp"
+  ports: "22,80,443,8000,8080"
+  node_group_policies: [ 'anti-affinity' ]
+  proxy: "http://10.199.51.5:3128"
+
+# openstack orchestration template validate --template ceph_cluster.yaml
+# openstack orchestration template validate --template ceph_cluster.yaml -e environments/ceph_env.yaml
+# openstack stack create -t ceph_cluster.yaml -e environments/ceph_env.yaml ceph
+# openstack stack update -t ceph_cluster.yaml -e environments/ceph_env.yaml ceph
+

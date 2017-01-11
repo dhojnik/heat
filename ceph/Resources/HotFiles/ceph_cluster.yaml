@@ -1,0 +1,305 @@
+heat_template_version: 2016-10-14
+
+description: Ceph cluster
+
+parameter_groups:
+  - label: CentOS cluster configuration
+    description: CentOS cluster configuration
+    parameters:
+      - image_id
+      - adm_instance_type
+      - mon_instance_type
+      - osd_instance_type
+      - mds_instance_type
+      - key_name
+      - network
+      - os_volume_size
+      - osd_volume_size
+      - osd_volume_count
+      - adm_node_count
+      - mon_node_count
+      - osd_node_count
+      - mds_node_count
+      - protocols
+      - ports
+      - node_group_policies
+      - proxy
+
+parameters:
+  image_id:
+    type: string
+    label: Image ID
+    description: CoreOS Image
+    default: 'CentOS-7.3.1611.heat.2'
+    constraints:
+      - custom_constraint: glance.image
+  adm_instance_type:
+    type: string
+    label: ADM Instance Type
+    description: Type of Instance
+    default: 'm1.micro'
+    constraints:
+      - custom_constraint: nova.flavor
+  mon_instance_type:
+    type: string
+    label: MON Instance Type
+    description: Type of Instance
+    default: 'm1.small'
+    constraints:
+      - custom_constraint: nova.flavor
+  osd_instance_type:
+    type: string
+    label: OSD Instance Type
+    description: Type of Instance
+    default: 'm1.small'
+    constraints:
+      - custom_constraint: nova.flavor
+  mds_instance_type:
+    type: string
+    label: MDS Instance Type
+    description: Type of Instance
+    default: 'm1.micro'
+    constraints:
+      - custom_constraint: nova.flavor
+  key_name:
+    type: string
+    label: Key Name
+    description: SSH Keys
+    default: 'admin'
+    constraints:
+      - custom_constraint: nova.keypair
+  network:
+    label: Network
+    type: string
+    description: Network
+    default: 'admin'
+    constraints:
+      - custom_constraint: neutron.network
+  os_volume_size:
+    label: OS Volume Size in GB
+    type: number
+    default: 10
+    constraints:
+    - range: {min: 10, max: 100}
+  osd_volume_size:
+    label: OSD Volume Size in GB
+    type: number
+    default: 20
+    constraints:
+    - range: {min: 1, max: 100}
+  osd_volume_count:
+    label: OSD Volume Count
+    type: number
+    default: 3
+    constraints:
+    - range: {min: 1, max: 10}
+  adm_node_count:
+    label: ADM Node Count
+    type: number
+    default: 1
+    constraints:
+    - range: {min: 1, max: 10}
+  mon_node_count:
+    label: OSD Node Count
+    type: number
+    default: 3
+    constraints:
+    - range: {min: 1, max: 10}
+  osd_node_count:
+    label: OSD Node Count
+    type: number
+    default: 3
+    constraints:
+    - range: {min: 1, max: 10}
+  mds_node_count:
+    label: OSD Node Count
+    type: number
+    default: 1
+    constraints:
+    - range: {min: 1, max: 10}
+  protocols:
+    type: comma_delimited_list
+    label: Security Group Protocols to Allow
+    default: "tcp"
+  ports:
+    type: comma_delimited_list
+    label: Security Group Ports to Allow
+    default: "22,80,443,8000,8080"
+  node_group_policies:
+    type: comma_delimited_list
+    description: List of policies applied on ServerGroups.
+    default: [ 'anti-affinity' ]
+  proxy:
+    type: string
+    description: Proxy URL for http and https Access
+    default: "http://10.199.51.5:3128"
+
+resources:
+  cephman_password:
+    type: OS::Heat::RandomString
+    properties:
+      length: 16
+      sequence: lettersdigits
+
+  ceph_ssh_key:
+    type: OS::Nova::KeyPair
+    properties:
+      save_private_key: true
+      name: ceph_ssh_key
+
+  adm_server_group:
+    type: OS::Nova::ServerGroup
+    properties:
+      name: adm_server_group
+      policies: { get_param: node_group_policies }
+
+  mon_server_group:
+    type: OS::Nova::ServerGroup
+    properties:
+      name: mon_server_group
+      policies: { get_param: node_group_policies }
+
+  osd_server_group:
+    type: OS::Nova::ServerGroup
+    properties:
+      name: osd_server_group
+      policies: { get_param: node_group_policies }
+
+  mds_server_group:
+    type: OS::Nova::ServerGroup
+    properties:
+      name: mds_server_group
+      policies: { get_param: node_group_policies }
+
+  security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      rules:
+        repeat:
+          for_each:
+            '%PORT%': { get_param: ports }
+            '%PROTOCOL%': { get_param: protocols }
+          template:
+            protocol: '%PROTOCOL%'
+            port_range_min: '%PORT%'
+            port_range_max: '%PORT%'
+
+  etcd_node:
+    type: OS::Heat::ResourceGroup
+    properties:
+      count: 1
+      resource_def:
+        type: ./etcd_node.yaml
+        properties:
+          image_id:           { get_param: image_id }
+          instance_type:      { get_param: adm_instance_type }
+          key_name:           { get_param: key_name }
+          network:            { get_param: network }
+          os_volume_size:     { get_param: os_volume_size }
+          security_group:     { get_resource: security_group }
+          heat_stack_name:    { get_param: "OS::stack_name" }
+          proxy:              { get_param: proxy }
+
+  ceph_mon_nodes:
+    type: OS::Heat::ResourceGroup
+    depends_on: [ etcd_node ]
+    properties:
+      count: { get_param: mon_node_count }
+      resource_def:
+        type: ./ceph_mon_node.yaml
+        properties:
+          image_id:           { get_param: image_id }
+          instance_type:      { get_param: mon_instance_type }
+          key_name:           { get_param: key_name }
+          network:            { get_param: network }
+          os_volume_size:     { get_param: os_volume_size }
+          server_group:       { get_resource: mon_server_group }
+          security_group:     { get_resource: security_group }
+          heat_stack_name:    { get_param: "OS::stack_name" }
+          ceph_ssh_pub_key:   { get_attr: [ ceph_ssh_key, public_key ] }
+          cephman_password:   { get_attr: [ cephman_password, value ] }
+          proxy:              { get_param: proxy }
+          etcd_node_ip:
+            list_join: [ " ", get_attr: [ etcd_node, instance_ip ] ]
+
+  ceph_osd_nodes:
+    type: OS::Heat::ResourceGroup
+    depends_on: [ etcd_node ]
+    properties:
+      count: { get_param: osd_node_count }
+      resource_def:
+        type: ./ceph_osd_node.yaml
+        properties:
+          image_id:           { get_param: image_id }
+          instance_type:      { get_param: osd_instance_type }
+          key_name:           { get_param: key_name }
+          network:            { get_param: network }
+          os_volume_size:     { get_param: os_volume_size }
+          server_group:       { get_resource: osd_server_group }
+          security_group:     { get_resource: security_group }
+          heat_stack_name:    { get_param: "OS::stack_name" }
+          ceph_ssh_pub_key:   { get_attr: [ ceph_ssh_key, public_key ] }
+          cephman_password:   { get_attr: [ cephman_password, value ] }
+          proxy:              { get_param: proxy }
+          etcd_node_ip:
+            list_join: [ " ", get_attr: [ etcd_node, instance_ip ] ]
+          osd_volume_size:    { get_param: osd_volume_size }
+          osd_volume_count:   { get_param: osd_volume_count }
+
+  ceph_mds_nodes:
+    type: OS::Heat::ResourceGroup
+    depends_on: [ etcd_node ]
+    properties:
+      count: { get_param: mds_node_count }
+      resource_def:
+        type: ./ceph_mds_node.yaml
+        properties:
+          image_id:           { get_param: image_id }
+          instance_type:      { get_param: mds_instance_type }
+          key_name:           { get_param: key_name }
+          network:            { get_param: network }
+          os_volume_size:     { get_param: os_volume_size }
+          server_group:       { get_resource: mds_server_group }
+          security_group:     { get_resource: security_group }
+          heat_stack_name:    { get_param: "OS::stack_name" }
+          ceph_ssh_pub_key:   { get_attr: [ ceph_ssh_key, public_key ] }
+          cephman_password:   { get_attr: [ cephman_password, value ] }
+          proxy:              { get_param: proxy }
+          etcd_node_ip:
+            list_join: [ " ", get_attr: [ etcd_node, instance_ip ] ]
+
+  ceph_adm_nodes:
+    type: OS::Heat::ResourceGroup
+    depends_on: [ etcd_node, ceph_mon_nodes, ceph_osd_nodes, ceph_mds_nodes ]
+    properties:
+      count: { get_param: adm_node_count }
+      resource_def:
+        type: ./ceph_adm_node.yaml
+        properties:
+          image_id:           { get_param: image_id }
+          instance_type:      { get_param: adm_instance_type }
+          key_name:           { get_param: key_name }
+          network:            { get_param: network }
+          os_volume_size:     { get_param: os_volume_size }
+          server_group:       { get_resource: adm_server_group }
+          security_group:     { get_resource: security_group }
+          heat_stack_name:    { get_param: "OS::stack_name" }
+          ceph_ssh_pub_key:   { get_attr: [ ceph_ssh_key, public_key ] }
+          ceph_ssh_pri_key:   { get_attr: [ ceph_ssh_key, private_key ] }
+          cephman_password:   { get_attr: [ cephman_password, value ] }
+          proxy:              { get_param: proxy }
+          etcd_node_ip:
+            list_join: [ " ", get_attr: [ etcd_node, instance_ip ] ]
+
+outputs:
+  private_key:
+    description: ceph private ssh key
+    value: { get_attr: [ ceph_ssh_key, private_key ] }
+
+  public_key:
+    description: ceph public ssh key
+    value: { get_attr: [ ceph_ssh_key, public_key ] }
+
+  cephman_password:
+    description: ceph-deploy user "cephman" password
+    value:  { get_attr: [ cephman_password, value ] }

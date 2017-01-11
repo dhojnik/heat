@@ -1,0 +1,160 @@
+heat_template_version: 2016-10-14
+
+description: Single ADM Instance template
+
+parameter_groups:
+  - label: Instance Configuration
+    description: Instance settings
+    parameters:
+      - image_id
+      - instance_type
+      - key_name
+      - network
+      - os_volume_size
+      - server_group
+      - security_group
+      - heat_stack_name
+      - ceph_ssh_pub_key
+      - ceph_ssh_pri_key
+      - cephman_password
+      - proxy
+      - etcd_node_ip
+
+parameters:
+  image_id:
+    type: string
+    label: Image ID
+    description: Instance Image
+    constraints:
+      - custom_constraint: glance.image
+  instance_type:
+    type: string
+    label: Instance Type
+    description: Type of Instance
+    constraints:
+      - custom_constraint: nova.flavor
+  key_name:
+    type: string
+    label: Key Name
+    description: SSH Keys
+    constraints:
+      - custom_constraint: nova.keypair
+  network:
+    label: Network
+    type: string
+    description: Network
+    constraints:
+      - custom_constraint: neutron.network
+  os_volume_size:
+    label: OS Volume Size in GB
+    type: number
+    constraints:
+    - range: { min: 10, max: 100 }
+  server_group:
+    type: string
+    description: List of policies applied on Instance Groups
+  security_group:
+    type: string
+    description: Security group to apply to ports
+  heat_stack_name:
+    label: Main heat stack name
+    type: string
+  ceph_ssh_pub_key:
+    label: ceph SSH keys for ceph-deploy administration
+    type: string
+  ceph_ssh_pri_key:
+    label: ceph SSH keys for ceph-deploy administration
+    type: string
+  cephman_password:
+    label: ceph-deploy user "cephman" password
+    type: string
+  proxy:
+    type: string
+    description: Proxy URL
+  etcd_node_ip:
+    type: string
+    description: etcd node ip
+
+resources:
+  random_hostname:
+    type: OS::Heat::RandomString
+    properties:
+      length: 8
+      character_classes: [ {"min": 6, "class": lowercase}, {"min": 2, "class": digits} ]
+
+  os_volume:
+    type: OS::Cinder::Volume
+    properties:
+      size: { get_param: os_volume_size }
+      image: { get_param: image_id }
+
+  network_port:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: network }
+      security_groups:
+        - default
+        - { get_param: security_group }
+
+  wait_condition:
+    type: OS::Heat::WaitCondition
+    properties:
+      handle: { get_resource: wait_handle }
+      count: 1
+      timeout: 1200
+
+  wait_handle:
+    type: OS::Heat::WaitConditionHandle
+
+  software_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        str_replace:
+          params:
+            $PROXY_URL:         { get_param: proxy }
+            $CEPH_SSH_PUB_KEY:  { get_param: ceph_ssh_pub_key }
+            $CEPH_SSH_PRI_KEY:  { get_param: ceph_ssh_pri_key }
+            $CEPHMAN_PASSWORD:  { get_param: cephman_password }
+            $ETCD_NODE_IP:      { get_param: etcd_node_ip }
+            $WC_NOTIFY:         { get_attr: [ 'wait_handle', 'curl_cli' ] }
+          template: { get_file: scripts/adm_node.sh }
+
+  software_deployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config:
+        get_resource: software_config
+      server:
+        get_resource: instance
+
+  instance:
+    type: OS::Nova::Server
+    properties:
+      name:
+        str_replace:
+          template: "%STACK_NAME%-adm-%RANDOM_HOSTNAME%"
+          params:
+            '%STACK_NAME%':      { get_param: heat_stack_name }
+            '%RANDOM_HOSTNAME%': { get_attr: [ random_hostname, value ] }
+      flavor: { get_param: instance_type }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: network_port }
+      block_device_mapping_v2:
+        - device_name: sda
+          volume_id: { get_resource: os_volume }
+          delete_on_termination: true
+      scheduler_hints:
+        group: { get_param: server_group }
+      user_data_format: SOFTWARE_CONFIG
+
+outputs:
+  networks:
+    description: Network block for the Instance
+    value: { get_attr: [instance, networks] }
+
+  instance_ip:
+    description: The IP address of the Instance
+    value: { get_attr: [instance, first_address] }
