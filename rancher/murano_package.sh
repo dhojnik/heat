@@ -26,4 +26,4 @@ rsync -a --exclude='*.DS_Store' environments/ Resources/HotEnvironments/
 #
 #zipinfo  rancher_cluster.zip
 
-#murano package-import --categories 'Containers' --is-public  mariadb_cluster.zip
+#murano package-import --categories 'Containers' --is-public  rancher_cluster.zip
